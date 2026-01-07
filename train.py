@@ -22,6 +22,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
 import torchvision.transforms as transforms
@@ -42,10 +43,42 @@ sns.set_theme(style="whitegrid")
 class AlexNet(nn.Module):
     def __init__(self, num_classes: int = 1000, dropout: float = 0.5) -> None:
         super().__init__()
-        ### TODO: Implement the AlexNet model as described in the assignment
+        conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=11, stride=4)
+        pool = nn.MaxPool2d(kernel_size=3, stride=2)
+        conv2 = nn.Conv2d(in_channels=64, out_channels=192, kernel_size=5, padding=2)
+        #pool
+        conv3 = nn.Conv2d(in_channels=192, out_channels=384, kernel_size=3, padding=1)
+        conv4 = nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, padding=1)
+        conv5 = nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, padding=1)
+        #pool
+        fc6 = nn.Linear(in_features=9216, out_features=4096)
+        fc7 = nn.Linear(in_features=4096, out_features=4096)
+        fc8 = nn.Linear(in_features=4096, out_features=1000)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # TODO: Implement the forward pass of the AlexNet model
+        # Forward pass of the AlexNet model
+        # Layer 1
+        x = F.relu(self.conv1(x))
+        x = self.pool(x)
+
+        # Layer 2
+        x = F.relu(self.conv2(x))
+        x = self.pool(x)
+
+        # Layer 3, 4, 5
+        x = F.relu(self.conv3(x))
+        x = F.relu(self.conv4(x))
+        x = F.relu(self.conv5(x))
+        x = self.pool(x)
+
+        # flatten before FC layers
+        torch.flatten(x, start_dim=1)
+
+        # FC Layers
+        x = F.relu(self.fc6(x))
+        x = F.relu(self.fc7(x))
+        x = self.fc8(x)
+
         return x
 
 
@@ -70,8 +103,28 @@ def evaluate_accuracy_and_loss(
         - accuracy: float, the top-1 accuracy of the model on the data_loader
         - loss: float, the average loss of the model on the data_loader
     """
-    ### TODO: Implement the evaluation function that computes the top-1 accuracy and loss
-    return
+    # Compute top-1 accuracy on the entire validation set
+    loss_function = nn.CrossEntropyLoss()
+    model.eval()
+    running_test_loss = 0
+    total = 0
+    correct = 0
+
+    for images, labels in data_loader:
+        images, labels = images.to(device), labels.to(device)
+        
+        out = model(images)
+        loss = loss_function(out, labels)
+        _, predicted = torch.max(out.data, 1)
+
+        total += labels.size(0)
+        correct += (predicted == labels).sum().item()
+        running_test_loss += loss.item() * images.size(0)
+
+    accuracy = 100 * correct / total
+    average_loss = running_test_loss / total
+    return accuracy, average_loss
+   
 
 def plot_conv1_kernels(model: torch.nn.Module, epoch: int):
     """
@@ -358,6 +411,8 @@ def main():
         weight_decay=weight_decay
     )
 
+    loss_function = nn.CrossEntropyLoss()
+
     # Lists to store losses and accuracies
     train_losses = []
     test_losses = []
@@ -420,7 +475,10 @@ def main():
             #   - loss computation
             #   - backward pass
             #   - and optimizer step
-            loss = 0.0 # Placeholder loss, replace with actual loss computation
+            out = model(images)
+            loss = loss_function(out, labels)
+            loss.backward()
+            # loss = 0.0 # Placeholder loss, replace with actual loss computation
 
             optimizer.step()
             
