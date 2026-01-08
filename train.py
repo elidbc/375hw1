@@ -10,7 +10,6 @@ You have to finish the following tasks:
 - Implement the evaluation function to compute top-1 accuracy and loss
 - Implement the function to plot the Conv1 kernels
 - Implement the function to plot the kernel responses for sine gratings
-
 """
 
 # run micromamba activate cs375
@@ -109,19 +108,20 @@ def evaluate_accuracy_and_loss(
     running_test_loss = 0
     total = 0
     correct = 0
+    with torch.no_grad():
+        for images, labels in data_loader:
+            images, labels = images.to(device), labels.to(device)
+            
+            pred = model(images)
+            running_test_loss += loss_function(pred, labels).item()
+            #_, predicted = torch.max(out.data, 1)
+            correct += (pred.argmax(1) == labels).type(torch.float).sum().item()
 
-    for images, labels in data_loader:
-        images, labels = images.to(device), labels.to(device)
-        
-        out = model(images)
-        loss = loss_function(out, labels)
-        _, predicted = torch.max(out.data, 1)
+            total += labels.size(0)
+            #correct += (predicted == labels).sum().item()
+            #running_test_loss += loss.item() * images.size(0)
 
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
-        running_test_loss += loss.item() * images.size(0)
-
-    accuracy = 100 * correct / total
+    accuracy = 100 * (correct / total)
     average_loss = running_test_loss / total
     return accuracy, average_loss
    
@@ -134,7 +134,24 @@ def plot_conv1_kernels(model: torch.nn.Module, epoch: int):
         - model: torch.nn.Module, the AlexNet model
         - epoch: int, the current training epoch
     """
-    ### TODO: Implement the function to plot the Conv1 kernels
+    ### Function to plot the Conv1 kernels
+    conv1_kernels = model.features[0]
+    W = conv1_kernels.weight
+    print(f"Plotting conv1 kernels; Weight shape: expected=(64, 3, 11, 11) || shape:{W.shape}")
+
+    W = W.detach().cpu()
+    grid = torchvision.utils.make_grid(W, nrow=8, normalize=True, scale=True)
+
+    grid_img = grid.permute(1, 2, 0).numpy()
+
+    os.makedirs("out", exist_ok=True)
+    plt.figure(figsize=(10, 10))
+    plt.imshow(grid_img)
+
+    out_path = f"out/conv1_kernels_epoch_{epoch}.png"
+    plt.savefig(out_path, bbox_inches="tight", dpi=200)
+    
+
 
 def compute_circular_variance(angles_deg, responses):
     """
@@ -272,6 +289,53 @@ def plot_sine_grating_responses_for_filters(
         # If this kernel received no data (unlikely, but just a safety check), skip
         if len(responses_per_kernel[k]) == 0:
             continue
+
+        degs = [t[0] for t in responses_per_kernel[k]]
+        sfs = [t[1] for t in responses_per_kernel[k]] # spatial frequency
+        rs = [t[2] for t in responses_per_kernel[k]] # responses
+
+        deg_to_rs = {}
+        for deg, sf, r in responses_per_kernel[k]:
+            deg_to_rs.setdefault(deg, []).append(r)
+        deg_sorted = sorted(deg_to_rs.keys())
+        deg_means = [float(np.mean(deg_to_rs[d])) for d in deg_sorted]
+
+        sf_to_rs = {}
+        for deg, sf, r in responses_per_kernel[k]:
+            sf_to_rs.setdefault(sf, []).append(r)
+        sf_sorted = sorted(sf_to_rs.keys())
+        sf_means = [float(np.mean(sf_to_rs[s])) for s in sf_sorted]
+
+        cv = compute_circular_variance(deg_sorted, deg_means)
+        circular_variances.append(cv)
+
+        # plotting 
+        # Response vs Orientation
+        fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+        axes[0].plot(deg_sorted, deg_means, marker="o", linewidth=1)
+        axes[0].set_xlabel("Orientation (deg)")
+        axes[0].set_ylabel("Response @ (27, 27)")
+        axes[0].set_title("Response vs Orientation")
+
+        # Response vs Spatial Frequency
+        axes[1].plot(sf_sorted, sf_means, marker="o", linewidth=1)
+        axes[1].set_xlabel("Spatial Frequency (sf)")
+        axes[1].set_ylabel("Response @ (27, 27)")
+        axes[1].set_title("Response vs Spatial Frequency")
+
+        w = conv1.weight[k].detach().cpu()
+        w_min, w_max = w.min(), w.max()
+        w_vis = (w - w_min) / (w_max - w_min + 1e-8)
+
+        img = w_vis.permute(1, 2, 0).numpy()
+        axes[2].imshow(img)
+        axes[2].axis("off")
+        axes[2].set_title("Kernel")
+
+        fig.suptitle(f"Kernel {k} (Epoch {epoch}) | CV = {cv:.3f}", y=1.02)
+        fig.tight_layout()
+        fig.savefig(os.path.join(out_dir, f"kernel_responses_{k:03d}.png"), bbox_inches="tight", dpi=200)
+        plt.close(fig)
 
         ### TODO: 
         # For each kernel:
@@ -475,8 +539,8 @@ def main():
             #   - loss computation
             #   - backward pass
             #   - and optimizer step
-            out = model(images)
-            loss = loss_function(out, labels)
+            pred = model(images)
+            loss = loss_function(pred, labels)
             loss.backward()
             # loss = 0.0 # Placeholder loss, replace with actual loss computation
 
