@@ -400,6 +400,26 @@ def get_lr_for_epoch(epoch: int) -> float:
     else:
         return 0.0001
 
+def preflight(model, train_loader, device):
+    print(f"Running preflight...")
+    model.train()
+    images, labels = next(iter(train_loader))
+    images, labels = images.to(device), labels.to(device)
+    print(f"images and labels moved to device...")
+    print(f"images shape: {images.shape}")
+
+    # 1 step forward/backward
+    out = model(images)
+    print(f"out shape: {out.shape}")
+    loss = torch.nn.CrossEntropyLoss()(out, labels)
+    loss.backward()
+    print(f"loss computed...")
+    print(f"loss: {loss.item()}")
+    # plotting sanity
+    plot_conv1_kernels(model, epoch=0)
+    cvs = plot_sine_grating_responses_for_filters(model, epoch=0, device=device)
+    print("preflight ok. batch:", images.shape, "loss:", float(loss), "num_cvs:", len(cvs))
+
 def main():
     # ---------------------------
     # 1. Configure Parameters
@@ -488,6 +508,8 @@ def main():
     # ---------------------------
     model = AlexNet(num_classes=1000).to(device)
     print(f"Initialized AlexNet Model: {summary(model, (3, 224, 224))}")
+
+    preflight(model, train_loader, device)
 
     optimizer = optim.SGD(
         model.parameters(), 

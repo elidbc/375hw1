@@ -5,6 +5,14 @@ sine_grating_images/*.png
 sine_grating_images/*.gif
 sine_grating_images/*.bmp
 
+# out images
+out/kernel_responses_*/*.png
+out/kernel_responses_*/*.jpg
+out/kernel_responses_*/*.jpeg
+out/kernel_responses_*/*.png
+out/kernel_responses_*/*.gif
+out/kernel_responses_*/*.bmp
+
 # Python cache files
 __pycache__/
 *.py[cod]
