@@ -1,0 +1,26 @@
+# Ignore all images in sine_grating_images directory
+sine_grating_images/*.jpg
+sine_grating_images/*.jpeg
+sine_grating_images/*.png
+sine_grating_images/*.gif
+sine_grating_images/*.bmp
+
+# Python cache files
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Output directory (if you want to ignore training outputs)
+# out/

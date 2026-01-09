@@ -157,7 +157,7 @@ def plot_conv1_kernels(model: torch.nn.Module, epoch: int):
     print(f"Plotting conv1 kernels; Weight shape: expected=(64, 3, 11, 11) || shape:{W.shape}")
 
     W = W.detach().cpu()
-    grid = torchvision.utils.make_grid(W, nrow=8, normalize=True, scale=True)
+    grid = torchvision.utils.make_grid(W, nrow=8, normalize=True, scale_each=True)
 
     grid_img = grid.permute(1, 2, 0).numpy()
 
@@ -541,12 +541,7 @@ def main():
     # ---------------------------
     # 4. Training Loop
     # ---------------------------
-    print(f"Testing data")
-    for images, labels in tqdm(train_loader):
-        images, labels = images.to(device), labels.to(device)
-        print(f"Images shape: {images.shape}")
-        print(f"Labels shape: {labels.shape}")
-        return
+    
     for epoch in range(start_epoch, total_epochs + 1):
         # Set the correct LR for this epoch
         lr = get_lr_for_epoch(epoch)
