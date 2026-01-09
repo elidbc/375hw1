@@ -30,5 +30,8 @@ ENV/
 *.swp
 *.swo
 
+# WandB files
+wandb/
+
 # Output directory (if you want to ignore training outputs)
 # out/

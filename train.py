@@ -355,7 +355,7 @@ def plot_sine_grating_responses_for_filters(
         fig.savefig(os.path.join(out_dir, f"kernel_responses_{k:03d}.png"), bbox_inches="tight", dpi=200)
         plt.close(fig)
 
-        ### TODO: 
+        ### todo: 
         # For each kernel:
         #   - Compute the circular variance and append it to circular_variances
         #   - Plot the response vs deg
@@ -429,7 +429,7 @@ def main():
 
     # Hyperparameters
     total_epochs = 30
-    batch_size = 32
+    batch_size = 128 # original 32
     num_workers = 8
     momentum = 0.9
     weight_decay = 0.0
@@ -437,7 +437,7 @@ def main():
 
     # Initialize W&B
     wandb.init(
-        project="cs375-alexnet",
+        project="cs375-alexnet-train1",
         config={
             "total_epochs": total_epochs,
             "batch_size": batch_size,
@@ -550,21 +550,28 @@ def main():
         train_dataset, 
         batch_size=batch_size, 
         shuffle=True, 
-        num_workers=num_workers
+        num_workers=num_workers,
+        pin_memory=(device.type == "cuda"),
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=4
     )
     print(f"Initialized train loader...")
     test_loader = torch.utils.data.DataLoader(
         test_dataset, 
         batch_size=batch_size, 
         shuffle=False, 
-        num_workers=num_workers
+        num_workers=num_workers,
+        pin_memory=(device.type == "cuda"),
+        persistent_workers=(num_workers > 0),
+        prefetch_factor=4
     )
     print(f"Initialized test loader...")
     # ---------------------------
     # 3. Model Setup
     # ---------------------------
     model = AlexNet(num_classes=1000).to(device)
-    print(f"Initialized AlexNet Model: {summary(model, (3, 224, 224))}")
+    print(f"Initialized AlexNet Model:")
+    summary(model, (3, 224, 224))
 
     preflight(model, train_loader, device)
 
@@ -636,11 +643,7 @@ def main():
             
             optimizer.zero_grad()
 
-            ### TODO: Implement the 
-            #   - forward pass
-            #   - loss computation
-            #   - backward pass
-            #   - and optimizer step
+            ### Todo done: forward pass, loss computation, backward pass, optimizer step
             pred = model(images)
             loss = loss_function(pred, labels)
 
