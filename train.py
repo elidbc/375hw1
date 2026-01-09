@@ -28,6 +28,7 @@ import torchvision.transforms as transforms
 import torch.backends.cudnn as cudnn
 import matplotlib.pyplot as plt
 import seaborn as sns
+from torchsummary import summary
 from tqdm import tqdm
 from PIL import Image
 from typing import Tuple, List
@@ -42,42 +43,57 @@ sns.set_theme(style="whitegrid")
 class AlexNet(nn.Module):
     def __init__(self, num_classes: int = 1000, dropout: float = 0.5) -> None:
         super().__init__()
-        conv1 = nn.Conv2d(in_channels=3, out_channels=64, kernel_size=11, stride=4)
-        pool = nn.MaxPool2d(kernel_size=3, stride=2)
-        conv2 = nn.Conv2d(in_channels=64, out_channels=192, kernel_size=5, padding=2)
-        #pool
-        conv3 = nn.Conv2d(in_channels=192, out_channels=384, kernel_size=3, padding=1)
-        conv4 = nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, padding=1)
-        conv5 = nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, padding=1)
-        #pool
-        fc6 = nn.Linear(in_features=9216, out_features=4096)
-        fc7 = nn.Linear(in_features=4096, out_features=4096)
-        fc8 = nn.Linear(in_features=4096, out_features=1000)
+
+        self.features = nn.Sequential(
+            # Conv Layer 1
+            nn.Conv2d(in_channels=3, out_channels=64, kernel_size=11, stride=4, padding=2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+
+            # Conv Layer 2
+            nn.Conv2d(in_channels=64, out_channels=192, kernel_size=5, padding=2),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+
+            # Conv Layer 3
+            nn.Conv2d(in_channels=192, out_channels=384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            # Conv Layer 4
+            nn.Conv2d(in_channels=384, out_channels=384, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+
+            # Conv Layer 5
+            nn.Conv2d(in_channels=384, out_channels=256, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2),
+        )
+        
+        self.classifier = nn.Sequential(
+            # FC Layer 1 (6)
+            nn.Linear(in_features=256*6*6, out_features=4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+
+            # FC Layer 2 (7)
+            nn.Linear(in_features=4096, out_features=4096),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=dropout),
+
+            # FC Layer 3 (8)
+            nn.Linear(in_features=4096, out_features=num_classes),
+        )
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # Forward pass of the AlexNet model
-        # Layer 1
-        x = F.relu(self.conv1(x))
-        x = self.pool(x)
+        # Conv Layers
+        x = self.features(x)
 
-        # Layer 2
-        x = F.relu(self.conv2(x))
-        x = self.pool(x)
-
-        # Layer 3, 4, 5
-        x = F.relu(self.conv3(x))
-        x = F.relu(self.conv4(x))
-        x = F.relu(self.conv5(x))
-        x = self.pool(x)
-
-        # flatten before FC layers
-        torch.flatten(x, start_dim=1)
+        # Flatten the output
+        x = torch.flatten(x, start_dim=1)
 
         # FC Layers
-        x = F.relu(self.fc6(x))
-        x = F.relu(self.fc7(x))
-        x = self.fc8(x)
-
+        x = self.classifier(x)
         return x
 
 
@@ -113,7 +129,8 @@ def evaluate_accuracy_and_loss(
             images, labels = images.to(device), labels.to(device)
             
             pred = model(images)
-            running_test_loss += loss_function(pred, labels).item()
+            loss = loss_function(pred, labels)
+            running_test_loss += loss.item() * images.size(0)
             #_, predicted = torch.max(out.data, 1)
             correct += (pred.argmax(1) == labels).type(torch.float).sum().item()
 
@@ -413,7 +430,7 @@ def main():
         cudnn.benchmark = True  # Enable cuDNN auto-tuner
     
     # Data directory (ImageNet structure assumed)
-    data_dir = None ### TODO: Set the path to the ImageNet dataset
+    data_dir = "../../../data/imagenet" ### TODO: Set the path to the ImageNet dataset
     
     # ---------------------------
     # 2. Data Preparation
@@ -438,35 +455,39 @@ def main():
             std =[0.229, 0.224, 0.225]
         )
     ])
+    print(f"Initialized data transforms...")
     
     train_dataset = torchvision.datasets.ImageNet(
         root=data_dir, 
         split='train', 
         transform=train_transforms
     )
+    print(f"Initialized train dataset...")
     test_dataset = torchvision.datasets.ImageNet(
         root=data_dir, 
         split='val', 
         transform=val_transforms
     )
-    
+    print(f"Initialized test dataset...")
     train_loader = torch.utils.data.DataLoader(
         train_dataset, 
         batch_size=batch_size, 
         shuffle=True, 
         num_workers=num_workers
     )
+    print(f"Initialized train loader...")
     test_loader = torch.utils.data.DataLoader(
         test_dataset, 
         batch_size=batch_size, 
         shuffle=False, 
         num_workers=num_workers
     )
-    
+    print(f"Initialized test loader...")
     # ---------------------------
     # 3. Model Setup
     # ---------------------------
     model = AlexNet(num_classes=1000).to(device)
+    print(f"Initialized AlexNet Model: {summary(model, (3, 224, 224))}")
 
     optimizer = optim.SGD(
         model.parameters(), 
@@ -520,6 +541,12 @@ def main():
     # ---------------------------
     # 4. Training Loop
     # ---------------------------
+    print(f"Testing data")
+    for images, labels in tqdm(train_loader):
+        images, labels = images.to(device), labels.to(device)
+        print(f"Images shape: {images.shape}")
+        print(f"Labels shape: {labels.shape}")
+        return
     for epoch in range(start_epoch, total_epochs + 1):
         # Set the correct LR for this epoch
         lr = get_lr_for_epoch(epoch)
@@ -541,8 +568,8 @@ def main():
             #   - and optimizer step
             pred = model(images)
             loss = loss_function(pred, labels)
+
             loss.backward()
-            # loss = 0.0 # Placeholder loss, replace with actual loss computation
 
             optimizer.step()
             
