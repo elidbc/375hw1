@@ -32,6 +32,7 @@ from torchsummary import summary
 from tqdm import tqdm
 from PIL import Image
 from typing import Tuple, List
+import wandb
 
 sns.set_theme(style="whitegrid")
 
@@ -434,6 +435,22 @@ def main():
     weight_decay = 0.0
     seed = 1110
 
+    # Initialize W&B
+    wandb.init(
+        project="cs375-alexnet",
+        config={
+            "total_epochs": total_epochs,
+            "batch_size": batch_size,
+            "num_workers": num_workers,
+            "momentum": momentum,
+            "weight_decay": weight_decay,
+            "seed": seed,
+            "architecture": "AlexNet",
+            "dataset": "ImageNet",
+        },
+        settings=wandb.Settings(_disable_stats=False),  # Enable system/GPU stats
+    )
+
     # Select device
     if torch.backends.mps.is_available():  # Check for Apple Silicon (MPS)
         device = torch.device("mps")  # Metal Performance Shaders (MPS) on macOS
@@ -450,8 +467,33 @@ def main():
         cudnn.benchmark = True  # Enable cuDNN auto-tuner
     
     # Data directory (ImageNet structure assumed)
-    data_dir = "../../../data/imagenet" ### TODO: Set the path to the ImageNet dataset
-    
+    #data_dir = "../../../data/imagenet" ### TODO: Set the path to the ImageNet dataset
+    data_dir = os.environ.get("IMNET", "/data/imagenet")
+
+    train_root = os.path.join(data_dir, "train")
+    val_root = os.path.join(data_dir, "val")
+
+    def _count_class_dirs(root: str) -> int:
+        return sum(
+            1 for name in os.listdir(root)
+            if os.path.isdir(os.path.join(root, name)) and not name.startswith(".")
+        )
+
+    # Hard guard: do NOT allow torchvision to start extracting archives during training.
+    if not (os.path.isdir(train_root) and os.path.isdir(val_root)):
+        raise RuntimeError(
+            f"Expected extracted ImageNet folders at:\n"
+            f"  {train_root}\n"
+            f"  {val_root}\n"
+            f"Refusing to run to avoid auto-extraction. Extract once offline, then rerun."
+        )
+
+    n_train_classes = _count_class_dirs(train_root)
+    n_val_classes   = _count_class_dirs(val_root)
+    print(f"Detected class dirs: train={n_train_classes}, val={n_val_classes}")
+
+    print(f"train_root: {train_root}")
+    print(f"val_root: {val_root}")
     # ---------------------------
     # 2. Data Preparation
     # ---------------------------
@@ -476,8 +518,23 @@ def main():
         )
     ])
     print(f"Initialized data transforms...")
+
+    train_dataset = torchvision.datasets.ImageFolder(
+        root=train_root,
+        transform=train_transforms
+    )
+    print(f"Initialized train dataset...")
+
+    test_dataset = torchvision.datasets.ImageFolder(
+        root=val_root,
+        transform=val_transforms
+    )
+    print(f"Initialized test dataset...")
+
+    assert len(train_dataset.classes) == len(test_dataset.classes), "train/val class mismatch"
+    print(f"ImageFolder classes: {len(train_dataset.classes)}")
     
-    train_dataset = torchvision.datasets.ImageNet(
+    """train_dataset = torchvision.datasets.ImageNet(
         root=data_dir, 
         split='train', 
         transform=train_transforms
@@ -487,7 +544,7 @@ def main():
         root=data_dir, 
         split='val', 
         transform=val_transforms
-    )
+    )"""
     print(f"Initialized test dataset...")
     train_loader = torch.utils.data.DataLoader(
         train_dataset, 
@@ -573,6 +630,7 @@ def main():
         model.train()
         running_train_loss = 0.0
 
+        batch_count = 0
         for images, labels in tqdm(train_loader, desc=f"Epoch {epoch}/{total_epochs} (Train)"):
             images, labels = images.to(device), labels.to(device)
             
@@ -592,6 +650,14 @@ def main():
             
             # Accumulate training loss
             running_train_loss += loss.item() * images.size(0)
+
+            # Log batch-level metrics to W&B (every 100 batches to reduce overhead)
+            batch_count += 1
+            if batch_count % 100 == 0:
+                wandb.log({
+                    "batch/train_loss": loss.item(),
+                    "batch/learning_rate": lr,
+                })
         
         # Calculate average train loss for the epoch
         epoch_train_loss = running_train_loss / len(train_dataset)
@@ -609,6 +675,15 @@ def main():
               f"Test Loss: {test_loss:.4f} | "
               f"Test Acc: {test_accuracy:.2f}%")
 
+        # Log epoch-level metrics to W&B
+        wandb.log({
+            "epoch": epoch,
+            "epoch/train_loss": epoch_train_loss,
+            "epoch/test_loss": test_loss,
+            "epoch/test_accuracy": test_accuracy,
+            "epoch/learning_rate": lr,
+        })
+
         # ---------------------------
         # 5. Save Metrics And Visualizations
         # ---------------------------
@@ -620,6 +695,32 @@ def main():
 
         # We can also plot the kernel filters
         plot_conv1_kernels(model, epoch)
+
+        # Log circular variance stats to W&B
+        if curr_circular_variances:
+            wandb.log({
+                "epoch": epoch,
+                "cv/mean": np.mean(curr_circular_variances),
+                "cv/std": np.std(curr_circular_variances),
+                "cv/min": np.min(curr_circular_variances),
+                "cv/max": np.max(curr_circular_variances),
+            })
+
+        # Log kernel visualization to W&B
+        kernel_img_path = f"out/conv1_kernels_epoch_{epoch}.png"
+        if os.path.exists(kernel_img_path):
+            wandb.log({
+                "epoch": epoch,
+                "kernels/conv1": wandb.Image(kernel_img_path, caption=f"Conv1 Kernels Epoch {epoch}"),
+            })
+
+        # Log circular variance histogram to W&B
+        cv_hist_path = f"out/kernel_responses_{epoch:02d}/circular_variance_histogram.png"
+        if os.path.exists(cv_hist_path):
+            wandb.log({
+                "epoch": epoch,
+                "cv/histogram": wandb.Image(cv_hist_path, caption=f"CV Distribution Epoch {epoch}"),
+            })
 
         fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(15, 5))
 
@@ -661,6 +762,9 @@ def main():
         torch.save(checkpoint_dict, "out/model.pt")  # Overwrite/update main checkpoint
 
     print("Training complete. Kernels, training metrics, and sine-grating responses have been saved to the 'out/' folder.")
+
+    # Finish W&B run
+    wandb.finish()
 
 
 if __name__ == "__main__":
